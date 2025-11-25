@@ -13,7 +13,7 @@ from hw3_get_verifiable_rewards import verifiable_rewards
 init_from = 'resume' # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
 out_dir = 'out' # ignored if init_from is not 'resume'
 start = "\n" # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
-num_samples = 25 # number of samples to draw
+num_samples = 10 # number of samples to draw
 max_new_tokens = 63 # number of tokens generated in each sample
 temperature = 0.8 # 1.0 = no change, < 1.0 = less random, > 1.0 = more random, in predictions
 top_k = 200 # retain only the top_k most likely tokens, clamp others to have 0 probability
@@ -81,38 +81,10 @@ if start.startswith('FILE:'):
 start_ids = encode(start)
 x = (torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...])
 
-# run generation
-model.train(False)
-optim = torch.optim.AdamW(model.parameters(), lr=1e-4)
-optim.zero_grad()
-
-for k in range(num_samples):
-    #forward pass, so no gradient
-    with torch.no_grad():
-        with ctx:
-            text_result = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
-            #don't include the first filler character.
-            usable_text_result = text_result[:, 1:]
-            # pre_text = torch.cat([x, text_result], dim=1)
-
-            pre_text = text_result[:, :-1]
-    #enable gradient, because we will be backpropagating
-    with torch.enable_grad():
-        logits, _ = model(pre_text, targets=usable_text_result)
-        log_prob_dist = torch.nn.functional.log_softmax(logits, -1)
-
-        #log_prob_dist = log_prob_dist.reshape(-1, log_prob_dist.shape[-1])
-        log_probs = log_prob_dist[0     , torch.arange(usable_text_result.size()[-1]), usable_text_result.reshape(-1)]
-
-        reward = get_reward(text_result)[0].detach()#verifiable_rewards(decode(text_result[0].tolist()))#[0].detach() #64
-        loss = -(reward * log_probs.mean())
-        optim.zero_grad()
-        loss.backward()
-        optim.step()
 
 
-for k in range(num_samples):
-    #disable gradient.
+for k in range(50):
+    print("RESULTS:")
     with torch.no_grad():
         with ctx:
             text_result = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
