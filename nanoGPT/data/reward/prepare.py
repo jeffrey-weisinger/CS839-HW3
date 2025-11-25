@@ -32,7 +32,6 @@ refined_data = "".join(refined_data)
 
 reward_data = refined_data[training_length:]
 
-print('test1')
 max_length = 0
 reward_set = set()
 for line in refined_data:
@@ -48,10 +47,6 @@ for line in refined_data:
 for i in range(max_length+1):
     reward_set.add(str(i))
 reward_set.add(" ")
-
-print('test2')
-#data
-
 
 chars = sorted(list(reward_set))
 # print(chars)
@@ -70,29 +65,30 @@ def decode(l):
 # create the train and test splits
 n = len(reward_data)
 
-print("test")
 #create y:
 ix = torch.randint(len(reward_data) - block_size, (batch_size,))
 x = [reward_data[i:i+block_size] for i in ix]
 
 y = []
 for line in x:
-    word_list = line.split(" ")
-    empty_strings = 0
-    for word in word_list:
-        if word == "":
-            empty_strings += 1
-    total_words = len(word_list) - empty_strings
-    total_letters = 0
-    for word in word_list:
-        total_letters += len(word)
-    y.append(str(total_letters/total_words))    
+    reward = 0
+    for char in line:
+        if char.lower() == 'a' or char.lower() == 'b' or char.lower() == 'c':
+            reward += 10
+        else:
+            reward -= 1
+    print(reward)
+    y.append(str(reward))    
+
 
 train_x = x[:int(len(x)*0.9)]
 val_x = x[int(len(x)*0.9):]
 
+print(train_x[:5])
+
 train_y = y[:int(len(y)*0.9)]
 val_y = y[int(len(y)*0.9):]
+print(train_y[:5])
 
 with open("train_x.txt", "w") as f:
     for block in train_x:
@@ -112,14 +108,12 @@ with open("val_x.txt", "w") as f:
         
 with open("train_y.txt", "w") as f:
     for scalar in train_y:
-        encoding = encode(scalar)
-        f.write(str(encoding[0]))
+        f.write(str(scalar))
         f.write("\n")
 
 with open("val_y.txt", "w") as f:
     for scalar in val_y:
-        encoding = encode(scalar)
-        f.write(str(encoding[0]))
+        f.write(str(scalar))
         f.write("\n")
 
 # encode both to integers
