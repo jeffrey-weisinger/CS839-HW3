@@ -1,17 +1,23 @@
 def verifiable_rewards(input):
-    input_list = input.split()
-    total_words = len(input_list)
+    white_space = ["\t", "\n", " "]
 
-    total_letters = 0
-    for val in input_list:
-        if val == "":
-            total_words -= 1
-        else:
-            total_letters += len(val)
-    #this is average 
-    if total_words == 0 or total_letters == 0:
-        print(input)
-        return -30
+    reward = 0
+    #checking first character. there is no opportunity to "end" a word here.
+    #starting a new word
+    if input[0] not in white_space:
+        reward += 5
+    #not starting a new word
     else:
-        return (total_letters-(input.count(" ") + input.count("\n")))/total_words 
+        reward -= 2
+    #i know that the input will have at least one character here, so we should always enter loop
+    for i, char in enumerate(input[1:]):
+        #starting a new word
+        if char not in white_space and input[i-1] in white_space:
+            reward += 5
+        #ending a word
+        elif char in white_space and input[i-1] not in white_space:
+            reward += 3
+        else:
+            reward -= 2
 
+        
