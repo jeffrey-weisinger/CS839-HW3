@@ -183,12 +183,15 @@ class GPT(nn.Module):
             x = block(x)
         x = self.transformer.ln_f(x)
 
+        #now, using the regression head directly
         results =  self.regression_head(x)
+        #we just care about the regression on the last value (takes entire sequence into consideration)
         results = results[:, -1]
         if targets is not None:
             # we can just calculate squared distance
             loss = F.mse_loss(targets, results)
         else:
+            #if there are no targets, this is basically inference.
             loss = None
 
         return results, loss
