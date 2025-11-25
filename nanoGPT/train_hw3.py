@@ -120,25 +120,28 @@ def get_batch(split):
     # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
     if split == 'train':
-        train_x = None
-        train_y = None
         with open("./data/reward/train_x.txt", "r") as f:
             x = f.read()
+        #first idea is to split on lines.
         x = x.split("\n")
         x = x[:-1] #last value should just be empty
+        #then, split on characters
         for i, line in enumerate(x):
             x[i] = line.split(" ")
         for i, line in enumerate(x):
             for j, char in enumerate(line):
                 x[i][j] = int(char)
+        #convert to tensor
         for i, line in enumerate(x):
             x[i] = torch.tensor(x[i], dtype=torch.int64)
         x = torch.stack(x)
 
         with open("./data/reward/train_y.txt", "r") as f:
             y = f.read()
+        #split on new line
         y = y.split("\n")
         y = y[:-1] #last value should just be empty
+        #convert each value to tensor
         for i, val in enumerate(y):
             y[i] = torch.tensor([int(val)], dtype=torch.float32)
         y = torch.stack(y)    
@@ -148,21 +151,26 @@ def get_batch(split):
         y = None
         with open("./data/reward/val_x.txt", "r") as f:
             x = f.read()
+        #first idea is to split on lines.
         x = x.split("\n")
         x = x[:-1] #last value should just be empty
+        #then, split on characters
         for i, line in enumerate(x):
             x[i] = line.split(" ")
         for i, line in enumerate(x):
             for j, char in enumerate(line):
                 x[i][j] = int(char)
+        #convert to tensor
         for i, line in enumerate(x):
             x[i] = torch.tensor(x[i], dtype=torch.int64)
         x = torch.stack(x)
 
         with open("./data/reward/val_y.txt", "r") as f:
             y = f.read()
+        #split on new line
         y = y.split("\n")
         y = y[:-1] #last value should just be empty
+        #convert each value to tensor
         for i, val in enumerate(y):
             y[i] = torch.tensor([int(val)], dtype=torch.float32)
         y = torch.stack(y)  
