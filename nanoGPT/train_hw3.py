@@ -172,6 +172,9 @@ def get_batch(split):
         x, y = x.pin_memory().to(device, non_blocking=True), y.pin_memory().to(device, non_blocking=True)
     else:
         x, y = x.to(device), y.to(device)
+    # print("===")
+    # print(x)
+    # print(y)
     return x, y
 
 # init these up here, can override if init_from='resume' (i.e. from a checkpoint)
