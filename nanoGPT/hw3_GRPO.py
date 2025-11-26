@@ -10,7 +10,7 @@ from model import GPTConfig, GPT
 from hw3_get_rewards import get_reward
 from hw3_get_verifiable_rewards import verifiable_rewards
 import random
-
+import matplotlib.pyplot as plt
 # -----------------------------------------------------------------------------
 init_from = 'resume' # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
 out_dir = 'out' # ignored if init_from is not 'resume'
@@ -84,57 +84,51 @@ start_ids = encode(start)
 x = (torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...])
 
 
-#=========================================================================
-data = None
-with open("./data/wikipedia_char/AllCombined.txt", 'r', encoding="utf-8") as f:
-    data = f.read()
-data = data.split("\n")
-refined_data = []
-for line in data:
-    if line != "":
-        refined_data.append(line)
-random.seed(100)
-random.shuffle(refined_data)
+########### Question 2-2
+baseline_samples = []
+baseline_rewards = []
+for k in range(100):
+    #disable gradient.
+    with torch.no_grad():
+        with ctx:
+            text_result = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
+            decoded = decode(text_result[0].tolist())
+            # print(get_reward(text_result)[0].detach())
 
-length = len(refined_data)
-training_length = int(length*3/4)
+        baseline_samples.append(decoded)
+        baseline_rewards.append(verifiable_rewards(decoded))
+        print(decoded)
+        # print(len(decoded))
+        print(verifiable_rewards(decoded))
 
-refined_data = "".join(refined_data)
-reward_data = refined_data[training_length:]
+        # print(len(decoded.strip()))
+        # print(verifiable_rewards(decoded.strip()))
+        # print("START")
+        # print(decoded[:3])
+        # print("END")
+        # print(decoded[-3:])
+        # print("OK")
 
-############
+baseline_rewards = torch.tensor(baseline_rewards, dtype=torch.float32)
+print(baseline_rewards.mean())
 
+# ##### Question 2-3
 model.train(False)
-optim = torch.optim.AdamW(model.parameters())
+optim = torch.optim.AdamW(model.parameters(), lr=1e-4)
 optim.zero_grad()
 
-random_samples = []
-baseline_rewards = []
-for i in range(200):
-    max_index = len(reward_data)-20
-    random_index = random.randint(0, max_index)
-    random_sample = reward_data[random_index:random_index+20]
-    random_samples.append(random_sample)
-    baseline_rewards.append(verifiable_rewards(random_sample))
-
-baseline_rewards = torch.tensor(baseline_rewards)
-baseline_mean = baseline_rewards.mean()
-baseline_std = baseline_rewards.std()
-
-#######
 G = 10
-steps = 100
-
-
-
-old_log_prob_dist = torch.zeros((1, 63, 5346))
-old_log_prob_dist += 0.01
-for i in range(steps):
+steps = 25
+epsilon = 0.5
+mean_rewards = []
+for i in range(15):
     print(f"STEP{i}")
     new_actions = []
     new_rewards = []
     new_pre_text = []
+    old_log_prob_dist_arr = []
     for k in range(G):
+        #note that this is no grad so we can calculate our old log prob dist.
         with torch.no_grad():
             with ctx:
                 text_result = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
@@ -143,80 +137,58 @@ for i in range(steps):
                 # pre_text = torch.cat([x, text_result], dim=1)
 
                 pre_text = text_result[:, :-1]
-        with torch.enable_grad():
-            new_rewards.append(verifiable_rewards(decode(text_result[0].tolist())))
-            new_actions.append(usable_text_result)
-            new_pre_text.append(pre_text)
+                logits, _ = model(pre_text, targets=usable_text_result)
+                #we  do this here because of the no grad.
+                old_log_prob_dist = torch.nn.functional.log_softmax(logits, -1)
+                old_log_prob_dist_arr.append(old_log_prob_dist)
 
-    advantage = torch.tensor(new_rewards)
-    advantage -= baseline_mean
-    advantage /= baseline_std
+                #here, we also compute our rewards, which we will use to compute advantages.
+                new_rewards.append(verifiable_rewards(decode(text_result[0].tolist())))
+                new_actions.append(usable_text_result)
+                new_pre_text.append(pre_text)
+
+    #getting the new rewarsd and standardizing
+    advantage = torch.tensor(new_rewards, dtype=torch.float32)
+    advantage_mean = advantage.mean()
+    mean_rewards.append(advantage_mean.item())
+    advantage_std = advantage.std()
+    advantage = (advantage - advantage_mean) / advantage_std
+
     loss = 0
     for k in range(G):
         with torch.enable_grad():
+            #we get actions for the kth step
             actions = new_actions[k]
             logits, _ = model(new_pre_text[k], targets=actions)
+            
             log_prob_dist = torch.nn.functional.log_softmax(logits, -1)
+            #we can calculate log probs for the current, kth step.
             new_log_probs = log_prob_dist[0     , torch.arange(actions.size()[-1]), actions.reshape(-1)]
-            old_log_probs = old_log_prob_dist[0     , torch.arange(actions.size()[-1]), actions.reshape(-1)]
-
-            ratio = new_log_probs/old_log_probs
-            ratio = ratio.mean()
-            loss += torch.min(ratio*advantage[i], torch.clip(ratio, 1-0.5, 1+0.5))
-
+            #we get old log probs that were stored in the array.
+            #we make sure to detach so that the backpropagation goes in the right direction.
+            old_log_prob_dist_arr[k] = old_log_prob_dist_arr[k].detach()
+            old_log_probs = old_log_prob_dist_arr[k][0     , torch.arange(actions.size()[-1]), actions.reshape(-1)]
+            
+            #note that I need to exponentiate because we were dealing with log probs initially.
+            ratio = new_log_probs.exp()/old_log_probs.exp()
+            #we add to loss, but we will later flip because maximization goal.
+            loss += torch.min(ratio*advantage[k], torch.clip(ratio, 1-epsilon, 1+epsilon)*advantage[k])
+    loss = -loss.mean()
     optim.zero_grad()
     loss.backward()
     optim.step()
-    old_log_prob_dist = log_prob_dist
 
-for k in range(20):
+
+plt.plot(list(range(1, 16)), mean_rewards)
+plt.xlabel("GRPO Steps")
+plt.ylabel("Mean Verifier Score")
+plt.show()
+
+for k in range(25):
     print("RESULTS:")
     with torch.no_grad():
         with ctx:
             text_result = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
             print(decode(text_result[0].tolist()))
-
-
-# for k in range(num_samples):
-    
-
-# # run generation
-# model.train(False)
-# optim = torch.optim.AdamW(model.parameters())
-# optim.zero_grad()
-
-# for k in range(num_samples):
-#     with torch.no_grad():
-#         with ctx:
-#             text_result = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
-#             #don't include the first filler character.
-#             usable_text_result = text_result[:, 1:]
-#             # pre_text = torch.cat([x, text_result], dim=1)
-
-#             pre_text = text_result[:, :-1]
-#     with torch.enable_grad():
-#         logits, _ = model(pre_text, targets=usable_text_result)
-#         log_prob_dist = torch.nn.functional.log_softmax(logits, -1)
-
-#         #log_prob_dist = log_prob_dist.reshape(-1, log_prob_dist.shape[-1])
-#         log_probs = log_prob_dist[0, torch.arange(usable_text_result.size()[-1]), usable_text_result.reshape(-1)]
-
-#         reward = get_reward(usable_text_result)[0].detach() #64
-#         # print(reward)
-#         # print(log_probs.mean())
-#         loss = -(reward * log_probs.mean())*0.0000000075
-#         print(loss)
-#         optim.zero_grad()
-#         loss.backward()
-#         optim.step()
-
-
-
-# for k in range(20):
-#     print("RESULTS:")
-#     with torch.no_grad():
-#         with ctx:
-#             text_result = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
-#             print(decode(text_result[0].tolist()))
-
-
+            print(verifiable_rewards(decode(text_result[0].tolist())))
+ 
